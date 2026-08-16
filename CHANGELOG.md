@@ -5,6 +5,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.3.0] — 2026-08-16
+
+### Added — Product Requirements Document (`docs/PRD.md`)
+
+Replaced the placeholder stub with a full PRD written from the v5 database schema and TRD.
+Covers all seven modules, the shared identity/trust/RBAC layer, moderation, and notifications.
+
+Sections added:
+- Overview and module list
+- Target users and secondary actors (club reps, org contacts, moderators)
+- Multi-campus tenancy model
+- Identity: accounts, trust score, life points, RBAC with seed role set, user blocks
+- Module: Goods Marketplace (offer/request × sale/rent/giveaway/buy, interest threads, contact reveal flow)
+- Module: Services & Gigs (org identity layer, hiring pipeline audit trail, org verification)
+- Module: Events (recurring series + materialised instances, RSVP statuses, capacity)
+- Module: Attendance (private per-student, composite `(schedule_slot_id, class_date)` key, ad-hoc classes)
+- Module: Academic Terms (moderator-managed, `is_current` flag)
+- Module: Exams (crowd-sourced, peer confirm/flag flow, branch+term subscriptions)
+- Module: Interest Circles (groups + Discover opt-in, WhatsApp link rotation, tag moderation)
+- Module: Campus Creators Directory (nomination → claim flow, platform links)
+- Shared: Moderation (polymorphic reports, 8 entity types)
+- Shared: Notifications (13 typed variants, polymorphic entity ref)
+- Access control summary table
+- Out of scope for v1
+- Open questions
+
+---
+
 ## [0.2.0] — 2026-08-16
 
 ### Added — Database Schema v5 (`docs/database-schema.dbml`)
