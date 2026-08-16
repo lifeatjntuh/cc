@@ -1,4 +1,1226 @@
-﻿// Database schema  -  TODO
-// Paste in the DBML schema here, or re-run the scaffold script with
-// -SourceDocsPath pointing at the folder where you saved
-// campus_companion_schema.dbml. Import at https://drawdb.app/editor
+// Campus Companion — Database Schema (v5)
+// Format: DBML (https://dbml.dbdiagram.io) — import directly into drawdb.app
+// Intentionally DB-agnostic: no engine-specific types used, so this can be
+// exported to Postgres, MySQL, SQLite/libSQL (Turso), etc. once a DB is chosen.
+// IDs are modeled as varchar (UUID or auth-provider uid) rather than
+// engine-specific auto-increment types, for the same reason.
+//
+// Structural decisions locked in so far:
+//  - Category/tag vocab -> lookup tables, not free text/enum.
+//  - Soft-delete (deleted_at) on every table.
+//  - campus_id baked in now for future multi-campus support.
+//  - user_blocks table (sitewide, independent of moderator reports).
+//  - trust_score_events audit log backs users.trust_score.
+//  - goods_listing_interests.accepted is soft/informational; goods_listings.status
+//    -> sold/fulfilled is the real close event and should cascade-decline
+//    remaining pending threads (app-layer business rule, noted below).
+//  - attendance_marks keyed on (schedule_slot_id, class_date) to allow multiple
+//    sessions of the same subject per day (e.g. lecture + lab).
+//  - Recurring events use a parent event_series + materialized instance rows.
+//  - academic_terms is moderator-managed per campus (term dates shift yearly).
+//  - users.branch_id is a real FK into branches (not free text).
+//  - creator_profiles links live in a dedicated creator_links table.
+//  - interest_groups.whatsapp_link_history is a JSON string field, not a table.
+//  - Marketplace is now GOODS-ONLY (physical items: sale/rent/giveaway/buy).
+//    Anything service-shaped (gigs, internships, tutoring, tasks, freelance
+//    work) lives in its own Services module below, with a real employer
+//    identity (organizations) and a real hiring pipeline (service_applications).
+//    This split also means Services could live on a different DB service
+//    than Goods if desired later — they only share the identity tables.
+
+Project campus_companion {
+  database_type: 'Generic / DB-agnostic draft'
+  note: '''
+    Draft schema for the Campus Companion super app (Goods Marketplace,
+    Services/Gigs, Events, Attendance, Exams, Interest Circles, Campus
+    Creators). Not locked to a specific database engine yet — see the
+    accompanying TRD for the discussion of relational vs document storage,
+    and which modules could reasonably live on separate DB services.
+  '''
+}
+
+//////////////////////////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////////////////////////
+
+Enum goods_listing_kind {
+  offer
+  request
+}
+
+Enum goods_listing_mode {
+  sale
+  rent
+  giveaway
+  buy
+}
+
+Enum goods_listing_status {
+  available
+  open
+  sold
+  fulfilled
+  archived
+  removed
+}
+
+Enum item_condition {
+  new
+  like_new
+  good
+  fair
+  poor
+  any
+}
+
+Enum price_type_enum {
+  per_each
+  per_kg
+  per_hour
+  per_day
+  per_month
+  per_semester
+  total
+}
+
+Enum quantity_unit_enum {
+  ea
+  kg
+  hour
+  set
+  box
+  other
+}
+
+Enum interest_thread_status {
+  pending
+  accepted
+  declined
+  contact_revealed
+}
+
+Enum report_entity_type {
+  goods_listing
+  service_listing
+  organization
+  interest_group
+  event
+  exam_entry
+  creator_profile
+  user
+}
+
+Enum report_status {
+  open
+  processed
+  dismissed
+}
+
+Enum event_organizer_type {
+  user
+  club
+}
+
+Enum event_status {
+  active
+  cancelled
+}
+
+Enum rsvp_status {
+  going
+  interested
+  waitlisted
+  cancelled
+}
+
+Enum attendance_status {
+  present
+  absent
+  cancelled
+}
+
+Enum exam_type {
+  quiz
+  mid_sem
+  end_sem
+  other
+}
+
+Enum exam_entry_status {
+  unverified
+  verified
+  flagged
+}
+
+Enum exam_confirmation_type {
+  confirm
+  flag
+}
+
+Enum group_status {
+  active
+  hidden
+  archived
+}
+
+Enum join_request_status {
+  pending
+  approved
+  declined
+}
+
+Enum swipe_direction {
+  interested
+  pass
+}
+
+Enum match_status {
+  active
+  unmatched
+}
+
+Enum service_poster_type {
+  user
+  club
+  organization
+}
+
+Enum compensation_type_enum {
+  unpaid
+  stipend
+  hourly
+  fixed
+  revenue_share
+  negotiable
+}
+
+Enum duration_type_enum {
+  one_time
+  short_term
+  ongoing
+  fixed_term
+}
+
+Enum application_method_enum {
+  in_app
+  external_link
+}
+
+Enum service_listing_status {
+  open
+  closed
+  filled
+  archived
+}
+
+Enum service_application_status {
+  applied
+  shortlisted
+  interviewed
+  offered
+  accepted
+  rejected
+  withdrawn
+}
+
+Enum notification_type {
+  goods_listing_interest
+  goods_listing_status_nudge
+  service_application_status_changed
+  service_listing_deadline_reminder
+  event_reminder
+  event_update
+  attendance_nudge
+  attendance_low_warning
+  exam_entry_confirmed
+  group_join_approved
+  group_join_declined
+  discover_match
+  report_resolved
+}
+
+//////////////////////////////////////////////////////////////////////////
+// TENANCY
+//////////////////////////////////////////////////////////////////////////
+
+Table campuses {
+  id varchar [pk]
+  name varchar [not null]
+  email_domain varchar [unique, not null, note: 'Used for the sign-up allowlist check']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+//////////////////////////////////////////////////////////////////////////
+// LOOKUP TABLES (editable taxonomy, no redeploy needed to add a value)
+//////////////////////////////////////////////////////////////////////////
+
+Table goods_categories {
+  id varchar [pk]
+  name varchar [unique, not null, note: 'Textbooks, Electronics, Stationery, Furniture, Clothing, Sports, Other — physical goods only']
+  sort_order int [default: 0]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table event_categories {
+  id varchar [pk]
+  name varchar [unique, not null]
+  sort_order int [default: 0]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table creator_categories {
+  id varchar [pk]
+  name varchar [unique, not null, note: 'Content Creator, Entrepreneur, Artist, Athlete, Researcher, Other']
+  sort_order int [default: 0]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+//////////////////////////////////////////////////////////////////////////
+// IDENTITY
+//////////////////////////////////////////////////////////////////////////
+
+Table users {
+  id varchar [pk, note: 'Auth-provider UID (e.g. Firebase Auth uid) or UUID']
+  campus_id varchar [not null]
+  email varchar [unique, not null]
+  college_domain varchar [note: 'Raw domain captured at signup; campus_id is the normalized link']
+  display_name varchar
+  photo_url varchar
+  roll_no varchar
+  branch_id varchar [note: 'FK to branches.id, scoped to the same campus']
+  phone varchar
+  instagram_handle varchar
+  bio text
+  trust_score int [default: 0, note: 'Derived/cached total — see trust_score_events for the audit trail']
+  life_points int [default: 0, note: 'Derived/cached total, scoped to users.campus_id — see life_point_events for the audit trail. Gamification currency, deliberately separate from trust_score: this is a rewards balance, not a permissions gate.']
+  is_suspended boolean [default: false]
+  terms_accepted_at timestamp
+  created_at timestamp [default: `now()`]
+  updated_at timestamp
+  deleted_at timestamp
+
+  indexes {
+    email [name: 'idx_users_email']
+    campus_id [name: 'idx_users_campus_id']
+    branch_id [name: 'idx_users_branch_id']
+  }
+}
+
+Table clubs {
+  id varchar [pk]
+  campus_id varchar [not null]
+  name varchar [not null]
+  description text
+  logo_url varchar
+  created_by varchar [not null, note: 'Original creator — see club_admins for the current active manager list']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table club_admins {
+  id varchar [pk]
+  club_id varchar [not null]
+  user_id varchar [not null]
+  role varchar [note: 'owner, admin — multiple students can manage one club, since leadership changes as members graduate']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (club_id, user_id) [unique, name: 'uq_club_admins_club_user']
+  }
+}
+
+Ref: club_admins.club_id > clubs.id [delete: cascade]
+Ref: club_admins.user_id > users.id
+
+Table roles {
+  id varchar [pk]
+  key varchar [unique, not null, note: 'e.g. super_admin, moderator, term_manager, org_verifier — extensible without a schema change']
+  name varchar [not null]
+  description text
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table user_roles {
+  id varchar [pk]
+  user_id varchar [not null]
+  role_id varchar [not null]
+  campus_id varchar [note: 'Null = platform-wide grant (e.g. a true super_admin). Non-null scopes the grant to one campus; grant the same role on multiple campuses via multiple rows.']
+  module_scope varchar [note: 'Null = applies to every module. Otherwise one of: goods_marketplace, services_module, events_module, exams_module, interest_circles, creators_module. Lets an Interest Circles moderator be granted separately from general moderation, per the PRD.']
+  granted_by varchar [not null]
+  granted_at timestamp [default: `now()`]
+  deleted_at timestamp [note: 'Revoking a role soft-deletes the grant rather than erasing the audit trail']
+
+  indexes {
+    user_id [name: 'idx_user_roles_user_id']
+    (campus_id, role_id, module_scope) [name: 'idx_user_roles_scope_lookup']
+  }
+}
+
+Ref: user_roles.user_id > users.id [delete: cascade]
+Ref: user_roles.role_id > roles.id
+Ref: user_roles.campus_id > campuses.id
+Ref: user_roles.granted_by > users.id
+
+Table trust_score_events {
+  id varchar [pk]
+  user_id varchar [not null]
+  delta int [not null, note: 'e.g. +5 deal_completed, -10 report_upheld']
+  reason varchar [not null]
+  related_entity_type varchar
+  related_entity_id varchar
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    user_id [name: 'idx_trust_score_events_user_id']
+  }
+}
+
+Ref: trust_score_events.user_id > users.id
+
+Table life_point_rules {
+  id varchar [pk]
+  campus_id varchar [not null]
+  key varchar [not null, note: 'e.g. goods_sale_completed, event_attended, attendance_streak_7d, service_hired']
+  name varchar [not null]
+  description text
+  points int [not null, note: 'Can be negative for penalty rules, though the primary use case is earning']
+  module_scope varchar [note: 'Optional, e.g. goods_marketplace, events_module, attendance_module — for organizing the admin UI, not enforced by the schema']
+  is_active boolean [default: true]
+  created_by varchar [not null, note: 'user_id of whoever created/edited this rule — should hold an appropriate role via user_roles']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (campus_id, key) [unique, name: 'uq_life_point_rules_campus_key']
+  }
+}
+
+Ref: life_point_rules.campus_id > campuses.id
+Ref: life_point_rules.created_by > users.id
+
+Table life_point_events {
+  id varchar [pk]
+  user_id varchar [not null]
+  campus_id varchar [not null]
+  rule_id varchar [note: 'Null = a manual/ad-hoc award not tied to a predefined rule']
+  delta int [not null]
+  reason varchar [not null, note: 'Denormalized from the rule at time of award, or free text if this was a manual grant']
+  related_entity_type varchar
+  related_entity_id varchar
+  granted_by varchar [note: 'Null = automated system award triggered by an in-app action; set = a manual grant by whoever holds the appropriate role']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    user_id [name: 'idx_life_point_events_user_id']
+    (campus_id, created_at) [name: 'idx_life_point_events_campus_created']
+  }
+}
+
+Ref: life_point_events.user_id > users.id [delete: cascade]
+Ref: life_point_events.campus_id > campuses.id
+Ref: life_point_events.rule_id > life_point_rules.id
+Ref: life_point_events.granted_by > users.id
+
+Table user_blocks {
+  id varchar [pk]
+  blocker_id varchar [not null]
+  blocked_id varchar [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp [note: 'Unblocking soft-deletes the row rather than removing history']
+
+  indexes {
+    (blocker_id, blocked_id) [unique, name: 'uq_user_blocks_pair']
+  }
+}
+
+Ref: users.campus_id > campuses.id
+Ref: users.branch_id > branches.id
+Ref: clubs.campus_id > campuses.id
+Ref: clubs.created_by > users.id
+Ref: user_blocks.blocker_id > users.id
+Ref: user_blocks.blocked_id > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// GOODS MARKETPLACE (physical items only — sale, rent, giveaway, buy)
+//////////////////////////////////////////////////////////////////////////
+
+Table goods_listings {
+  id varchar [pk]
+  campus_id varchar [not null]
+  kind goods_listing_kind [not null]
+  mode goods_listing_mode [not null]
+  title varchar [not null]
+  description text
+  category_id varchar [not null]
+  price decimal
+  price_type price_type_enum
+  quantity_number int
+  quantity_unit quantity_unit_enum
+  condition item_condition
+  status goods_listing_status [not null, default: 'available']
+  meeting_location varchar
+  posted_by varchar [not null]
+  expires_at timestamp
+  created_at timestamp [default: `now()`]
+  updated_at timestamp
+  deleted_at timestamp
+
+  note: '''
+    Business rule (app layer): when status transitions to sold/fulfilled,
+    all still-pending goods_listing_interests threads for this listing
+    should be auto-declined. Accepting an individual thread does NOT
+    close the listing on its own.
+  '''
+
+  indexes {
+    (kind, status, category_id) [name: 'idx_goods_listings_browse']
+    posted_by [name: 'idx_goods_listings_posted_by']
+    created_at [name: 'idx_goods_listings_created_at']
+    campus_id [name: 'idx_goods_listings_campus_id']
+  }
+}
+
+Ref: goods_listings.campus_id > campuses.id
+Ref: goods_listings.category_id > goods_categories.id
+Ref: goods_listings.posted_by > users.id
+
+Table goods_listing_photos {
+  id varchar [pk]
+  listing_id varchar [not null]
+  url varchar [not null]
+  sort_order int [default: 0]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Ref: goods_listing_photos.listing_id > goods_listings.id [delete: cascade]
+
+Table goods_listing_interests {
+  id varchar [pk]
+  listing_id varchar [not null]
+  from_user_id varchar [not null]
+  message text
+  status interest_thread_status [not null, default: 'pending']
+  contact_revealed boolean [default: false]
+  created_at timestamp [default: `now()`]
+  updated_at timestamp
+  deleted_at timestamp
+
+  note: '''
+    status = 'accepted' is soft/informational only ("we're talking").
+    The hard close event is goods_listings.status -> sold/fulfilled, which
+    should cascade-decline any other still-pending threads on the listing.
+  '''
+
+  indexes {
+    (listing_id, from_user_id) [unique, name: 'uq_goods_listing_interests_listing_user']
+  }
+}
+
+Ref: goods_listing_interests.listing_id > goods_listings.id [delete: cascade]
+Ref: goods_listing_interests.from_user_id > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// SERVICES & GIGS (internships, jobs, freelance work, tutoring, tasks —
+// anything where someone posts an opportunity/task and people apply)
+//////////////////////////////////////////////////////////////////////////
+
+Table service_categories {
+  id varchar [pk]
+  name varchar [unique, not null, note: 'Internship, Part-time Job, Freelance Gig, Tutoring, Task/Errand, Research Assistant, Volunteer, Creative/Design, Tech/Dev, Event Help, Other']
+  sort_order int [default: 0]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table service_skills {
+  id varchar [pk]
+  name varchar [unique, not null, note: 'e.g. Python, Photography, Content Writing — deliberately separate from interest_tags, since a skill requirement is not the same claim as a personal interest']
+  is_curated boolean [default: true]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table organizations {
+  id varchar [pk]
+  campus_id varchar [not null]
+  name varchar [not null]
+  description text
+  logo_url varchar
+  website_url varchar
+  contact_email varchar
+  is_verified boolean [default: false, note: 'Granted badge — requires a user_roles grant with an org-verification role, not college-email gated like students']
+  verified_by varchar [note: 'user_id of whoever verified this org — should hold an appropriate role via user_roles at time of verification']
+  created_by varchar [not null, note: 'Student who first registered this org profile']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Ref: organizations.campus_id > campuses.id
+Ref: organizations.verified_by > users.id
+Ref: organizations.created_by > users.id
+
+Table organization_admins {
+  id varchar [pk]
+  organization_id varchar [not null]
+  user_id varchar [not null]
+  role varchar [note: 'owner, admin — lets multiple students manage one org profile, since HR-intern-style admins turn over']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (organization_id, user_id) [unique, name: 'uq_organization_admins_org_user']
+  }
+}
+
+Ref: organization_admins.organization_id > organizations.id [delete: cascade]
+Ref: organization_admins.user_id > users.id
+
+Table service_listings {
+  id varchar [pk]
+  campus_id varchar [not null]
+  poster_type service_poster_type [not null]
+  poster_user_id varchar [note: 'Set when poster_type = user']
+  poster_club_id varchar [note: 'Set when poster_type = club']
+  poster_organization_id varchar [note: 'Set when poster_type = organization']
+  category_id varchar [not null]
+  title varchar [not null]
+  description text
+  compensation_type compensation_type_enum
+  compensation_amount_min decimal
+  compensation_amount_max decimal
+  duration_type duration_type_enum
+  duration_detail varchar [note: 'Free text, e.g. "3 months", "10 hrs/week"']
+  is_remote boolean [default: false]
+  location varchar
+  application_deadline timestamp [note: 'Null = rolling/ongoing, no fixed cutoff']
+  application_method application_method_enum [not null, default: 'in_app']
+  external_apply_url varchar [note: 'Set when application_method = external_link']
+  status service_listing_status [not null, default: 'open']
+  created_at timestamp [default: `now()`]
+  updated_at timestamp
+  deleted_at timestamp
+
+  note: '''
+    Unlike goods_listings, closing this (status -> filled/closed) does NOT
+    auto-reject applicants already in the pipeline — hiring decisions are
+    made explicitly by the poster per applicant, not cascaded, since a
+    poster may still want to reject/accept people already mid-pipeline
+    after the listing itself stops accepting new applications.
+  '''
+
+  indexes {
+    (category_id, status) [name: 'idx_service_listings_browse']
+    campus_id [name: 'idx_service_listings_campus_id']
+    poster_user_id [name: 'idx_service_listings_poster_user']
+    poster_organization_id [name: 'idx_service_listings_poster_org']
+  }
+}
+
+Ref: service_listings.campus_id > campuses.id
+Ref: service_listings.category_id > service_categories.id
+Ref: service_listings.poster_user_id > users.id
+Ref: service_listings.poster_club_id > clubs.id
+Ref: service_listings.poster_organization_id > organizations.id
+
+Table service_listing_skills {
+  id varchar [pk]
+  service_listing_id varchar [not null]
+  skill_id varchar [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (service_listing_id, skill_id) [unique, name: 'uq_service_listing_skills']
+  }
+}
+
+Ref: service_listing_skills.service_listing_id > service_listings.id [delete: cascade]
+Ref: service_listing_skills.skill_id > service_skills.id
+
+Table service_applications {
+  id varchar [pk]
+  service_listing_id varchar [not null]
+  applicant_id varchar [not null]
+  cover_message text
+  resume_url varchar
+  status service_application_status [not null, default: 'applied']
+  created_at timestamp [default: `now()`]
+  updated_at timestamp
+  deleted_at timestamp
+
+  indexes {
+    (service_listing_id, applicant_id) [unique, name: 'uq_service_applications_listing_applicant']
+    status [name: 'idx_service_applications_status']
+  }
+}
+
+Ref: service_applications.service_listing_id > service_listings.id [delete: cascade]
+Ref: service_applications.applicant_id > users.id
+
+Table service_application_events {
+  id varchar [pk]
+  application_id varchar [not null]
+  from_status varchar
+  to_status varchar [not null]
+  note text
+  changed_by varchar [not null, note: 'Poster/org admin who moved the stage, or the applicant if withdrawing']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    application_id [name: 'idx_service_application_events_application_id']
+  }
+}
+
+Ref: service_application_events.application_id > service_applications.id [delete: cascade]
+Ref: service_application_events.changed_by > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// SHARED MODERATION
+//////////////////////////////////////////////////////////////////////////
+
+Table reports {
+  id varchar [pk]
+  entity_type report_entity_type [not null]
+  entity_id varchar [not null, note: 'Polymorphic reference — no hard FK; points into goods_listings/service_listings/organizations/interest_groups/events/exam_entries/creator_profiles/users depending on entity_type']
+  reporter_id varchar [not null]
+  reason varchar [not null, note: 'e.g. item_sold, deal_withdrawn, deal_expired, looks_malicious, spam, harassment, false_information, impersonation, fake_organization']
+  description text
+  status report_status [not null, default: 'open']
+  resolution_notes text
+  resolved_by varchar
+  created_at timestamp [default: `now()`]
+  resolved_at timestamp
+  deleted_at timestamp
+
+  indexes {
+    (entity_type, entity_id) [name: 'idx_reports_entity']
+    status [name: 'idx_reports_status']
+  }
+}
+
+Ref: reports.reporter_id > users.id
+Ref: reports.resolved_by > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// EVENTS
+//////////////////////////////////////////////////////////////////////////
+
+Table event_series {
+  id varchar [pk]
+  campus_id varchar [not null]
+  title varchar [not null]
+  description text
+  category_id varchar
+  recurrence_rule varchar [note: 'e.g. an RRULE-style string: FREQ=WEEKLY;BYDAY=MON']
+  default_location varchar
+  default_start_time time
+  default_end_time time
+  organizer_type event_organizer_type [not null]
+  organizer_user_id varchar
+  organizer_club_id varchar
+  series_start_date date
+  series_end_date date
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  note: '''
+    Individual occurrences are materialized as real rows in events (generated
+    ahead by app/cron, e.g. the next N occurrences), so each week's instance
+    can be RSVP'd to or cancelled independently.
+  '''
+}
+
+Ref: event_series.campus_id > campuses.id
+Ref: event_series.category_id > event_categories.id
+Ref: event_series.organizer_user_id > users.id
+Ref: event_series.organizer_club_id > clubs.id
+
+Table events {
+  id varchar [pk]
+  campus_id varchar [not null]
+  series_id varchar [note: 'Null = one-off event, not part of a recurring series']
+  title varchar [not null]
+  description text
+  category_id varchar
+  start_time timestamp [not null]
+  end_time timestamp
+  location varchar
+  cover_image_url varchar
+  capacity int
+  organizer_type event_organizer_type [not null]
+  organizer_user_id varchar
+  organizer_club_id varchar
+  status event_status [not null, default: 'active']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    start_time [name: 'idx_events_start_time']
+    category_id [name: 'idx_events_category']
+    series_id [name: 'idx_events_series_id']
+    campus_id [name: 'idx_events_campus_id']
+  }
+}
+
+Ref: events.campus_id > campuses.id
+Ref: events.series_id > event_series.id
+Ref: events.category_id > event_categories.id
+Ref: events.organizer_user_id > users.id
+Ref: events.organizer_club_id > clubs.id
+
+Table event_rsvps {
+  id varchar [pk]
+  event_id varchar [not null]
+  user_id varchar [not null]
+  status rsvp_status [not null, default: 'going']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (event_id, user_id) [unique, name: 'uq_event_rsvps_event_user']
+  }
+}
+
+Ref: event_rsvps.event_id > events.id [delete: cascade]
+Ref: event_rsvps.user_id > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// ATTENDANCE (private per-student)
+//////////////////////////////////////////////////////////////////////////
+
+Table subjects {
+  id varchar [pk]
+  user_id varchar [not null]
+  term_id varchar [note: 'Optional link to academic_terms; lets attendance % naturally reset each term']
+  name varchar [not null]
+  required_percentage decimal [default: 75]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    user_id [name: 'idx_subjects_user_id']
+    term_id [name: 'idx_subjects_term_id']
+  }
+}
+
+Ref: subjects.user_id > users.id [delete: cascade]
+Ref: subjects.term_id > academic_terms.id
+
+Table class_schedule_slots {
+  id varchar [pk]
+  subject_id varchar [not null]
+  day_of_week int [note: '0=Sunday .. 6=Saturday']
+  start_time time
+  end_time time
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Ref: class_schedule_slots.subject_id > subjects.id [delete: cascade]
+
+Table attendance_marks {
+  id varchar [pk]
+  subject_id varchar [not null]
+  schedule_slot_id varchar [note: 'Null = ad-hoc/extra class not on the fixed weekly schedule']
+  class_date date [not null]
+  status attendance_status [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (schedule_slot_id, class_date) [unique, name: 'uq_attendance_marks_slot_date']
+    subject_id [name: 'idx_attendance_marks_subject_id']
+  }
+}
+
+Ref: attendance_marks.subject_id > subjects.id [delete: cascade]
+Ref: attendance_marks.schedule_slot_id > class_schedule_slots.id
+
+//////////////////////////////////////////////////////////////////////////
+// ACADEMIC TERMS (moderator-managed, since term dates shift year to year)
+//////////////////////////////////////////////////////////////////////////
+
+Table academic_terms {
+  id varchar [pk]
+  campus_id varchar [not null]
+  name varchar [not null, note: 'e.g. "Semester 1, 2026-27" — moderator-defined label']
+  start_date date [not null]
+  end_date date [not null]
+  is_current boolean [default: false, note: 'Toggled by whoever holds a term-management role; app treats the term where is_current=true (and today falls in range) as "the" current semester']
+  created_by varchar [not null, note: 'user_id of whoever created/edited this term — should hold an appropriate role via user_roles, scoped to this campus']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (campus_id, is_current) [name: 'idx_academic_terms_current']
+  }
+}
+
+Ref: academic_terms.campus_id > campuses.id
+Ref: academic_terms.created_by > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// EXAMS (crowd-sourced, campus-wide)
+//////////////////////////////////////////////////////////////////////////
+
+Table branches {
+  id varchar [pk]
+  campus_id varchar [not null]
+  name varchar [not null, note: 'e.g. CSE, ECE, Mechanical']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (campus_id, name) [unique, name: 'uq_branches_campus_name']
+  }
+}
+
+Ref: branches.campus_id > campuses.id
+
+Table exam_entries {
+  id varchar [pk]
+  branch_id varchar [not null]
+  term_id varchar [not null]
+  subject_name varchar [not null]
+  exam_type exam_type [not null]
+  exam_date date [not null]
+  exam_time time
+  added_by varchar [not null]
+  status exam_entry_status [not null, default: 'unverified']
+  verification_count int [default: 0]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (branch_id, term_id, exam_date) [name: 'idx_exam_entries_browse']
+  }
+}
+
+Ref: exam_entries.branch_id > branches.id
+Ref: exam_entries.term_id > academic_terms.id
+Ref: exam_entries.added_by > users.id
+
+Table exam_confirmations {
+  id varchar [pk]
+  exam_entry_id varchar [not null]
+  user_id varchar [not null]
+  confirmation_type exam_confirmation_type [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (exam_entry_id, user_id) [unique, name: 'uq_exam_confirmations_entry_user']
+  }
+}
+
+Ref: exam_confirmations.exam_entry_id > exam_entries.id [delete: cascade]
+Ref: exam_confirmations.user_id > users.id
+
+Table user_exam_subscriptions {
+  id varchar [pk]
+  user_id varchar [not null]
+  branch_id varchar [not null]
+  term_id varchar [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (user_id, branch_id, term_id) [unique, name: 'uq_user_exam_subscriptions']
+  }
+}
+
+Ref: user_exam_subscriptions.user_id > users.id [delete: cascade]
+Ref: user_exam_subscriptions.branch_id > branches.id
+Ref: user_exam_subscriptions.term_id > academic_terms.id
+
+//////////////////////////////////////////////////////////////////////////
+// INTEREST CIRCLES — niche groups + opt-in discovery/matching
+//////////////////////////////////////////////////////////////////////////
+
+Table interest_tags {
+  id varchar [pk]
+  name varchar [not null, unique]
+  is_curated boolean [default: true, note: 'false = user-suggested tag pending moderator approval']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Table user_interest_tags {
+  id varchar [pk]
+  user_id varchar [not null]
+  tag_id varchar [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (user_id, tag_id) [unique, name: 'uq_user_interest_tags_user_tag']
+  }
+}
+
+Ref: user_interest_tags.user_id > users.id [delete: cascade]
+Ref: user_interest_tags.tag_id > interest_tags.id
+
+Table interest_groups {
+  id varchar [pk]
+  campus_id varchar [not null]
+  name varchar [not null]
+  description text
+  creator_id varchar [not null]
+  screening_question text [note: 'Optional prompt shown to a student requesting to join']
+  whatsapp_link varchar [note: 'Current link — never exposed publicly, only released to approved members']
+  whatsapp_link_history varchar [note: 'JSON string of past links, e.g. [{"url":"...","replaced_at":"2026-05-01T..."}] — kept here instead of a separate table since it is written rarely and read only for audit purposes']
+  member_count int [default: 0]
+  status group_status [not null, default: 'active']
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    status [name: 'idx_interest_groups_status']
+    campus_id [name: 'idx_interest_groups_campus_id']
+  }
+}
+
+Ref: interest_groups.campus_id > campuses.id
+Ref: interest_groups.creator_id > users.id
+
+Table group_tags {
+  id varchar [pk]
+  group_id varchar [not null]
+  tag_id varchar [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (group_id, tag_id) [unique, name: 'uq_group_tags_group_tag']
+  }
+}
+
+Ref: group_tags.group_id > interest_groups.id [delete: cascade]
+Ref: group_tags.tag_id > interest_tags.id
+
+Table group_join_requests {
+  id varchar [pk]
+  group_id varchar [not null]
+  user_id varchar [not null]
+  answer_text text
+  status join_request_status [not null, default: 'pending']
+  created_at timestamp [default: `now()`]
+  decided_at timestamp
+  deleted_at timestamp
+
+  indexes {
+    (group_id, user_id) [unique, name: 'uq_group_join_requests_group_user']
+    status [name: 'idx_group_join_requests_status']
+  }
+}
+
+Ref: group_join_requests.group_id > interest_groups.id [delete: cascade]
+Ref: group_join_requests.user_id > users.id
+
+Table group_memberships {
+  id varchar [pk]
+  group_id varchar [not null]
+  user_id varchar [not null]
+  joined_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (group_id, user_id) [unique, name: 'uq_group_memberships_group_user']
+  }
+}
+
+Ref: group_memberships.group_id > interest_groups.id [delete: cascade]
+Ref: group_memberships.user_id > users.id
+
+Table discover_profiles {
+  id varchar [pk]
+  user_id varchar [not null, unique]
+  is_opted_in boolean [default: false]
+  display_name varchar
+  photo_url varchar
+  updated_at timestamp
+  deleted_at timestamp
+}
+
+Ref: discover_profiles.user_id > users.id [delete: cascade]
+
+Table discover_swipes {
+  id varchar [pk]
+  from_user_id varchar [not null]
+  to_user_id varchar [not null]
+  direction swipe_direction [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (from_user_id, to_user_id) [unique, name: 'uq_discover_swipes_pair']
+  }
+}
+
+Ref: discover_swipes.from_user_id > users.id
+Ref: discover_swipes.to_user_id > users.id
+
+Table discover_matches {
+  id varchar [pk]
+  user_a_id varchar [not null]
+  user_b_id varchar [not null]
+  status match_status [not null, default: 'active']
+  unmatch_reason varchar [note: 'e.g. mutual, reported, blocked, inactive — null while status=active']
+  matched_at timestamp [default: `now()`]
+  ended_at timestamp
+  deleted_at timestamp
+
+  indexes {
+    (user_a_id, user_b_id) [unique, name: 'uq_discover_matches_pair']
+  }
+}
+
+Ref: discover_matches.user_a_id > users.id
+Ref: discover_matches.user_b_id > users.id
+
+//////////////////////////////////////////////////////////////////////////
+// CAMPUS CREATORS DIRECTORY
+//////////////////////////////////////////////////////////////////////////
+
+Table creator_profiles {
+  id varchar [pk]
+  user_id varchar [not null, unique, note: 'Profile only goes public once claimed by this user']
+  category_id varchar
+  bio text
+  is_claimed boolean [default: false]
+  nominated_by varchar
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Ref: creator_profiles.user_id > users.id
+Ref: creator_profiles.category_id > creator_categories.id
+Ref: creator_profiles.nominated_by > users.id
+
+Table creator_links {
+  id varchar [pk]
+  creator_profile_id varchar [not null]
+  platform varchar [note: 'instagram, youtube, linkedin, website, other']
+  url varchar [not null]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+}
+
+Ref: creator_links.creator_profile_id > creator_profiles.id [delete: cascade]
+
+//////////////////////////////////////////////////////////////////////////
+// NOTIFICATIONS
+//////////////////////////////////////////////////////////////////////////
+
+Table notifications {
+  id varchar [pk]
+  user_id varchar [not null]
+  type notification_type [not null]
+  payload_text text
+  related_entity_type varchar
+  related_entity_id varchar
+  is_read boolean [default: false]
+  created_at timestamp [default: `now()`]
+  deleted_at timestamp
+
+  indexes {
+    (user_id, is_read) [name: 'idx_notifications_user_unread']
+  }
+}
+
+Ref: notifications.user_id > users.id [delete: cascade]
+
+//////////////////////////////////////////////////////////////////////////
+// TABLE GROUPS (visual grouping in the drawdb canvas)
+//////////////////////////////////////////////////////////////////////////
+
+TableGroup tenancy_and_lookups {
+  campuses
+  goods_categories
+  event_categories
+  creator_categories
+}
+
+TableGroup identity {
+  users
+  clubs
+  club_admins
+  roles
+  user_roles
+  trust_score_events
+  life_point_rules
+  life_point_events
+  user_blocks
+}
+
+TableGroup goods_marketplace {
+  goods_listings
+  goods_listing_photos
+  goods_listing_interests
+}
+
+TableGroup services_module {
+  organizations
+  organization_admins
+  service_categories
+  service_skills
+  service_listings
+  service_listing_skills
+  service_applications
+  service_application_events
+}
+
+TableGroup moderation {
+  reports
+}
+
+TableGroup events_module {
+  event_series
+  events
+  event_rsvps
+}
+
+TableGroup attendance_module {
+  subjects
+  class_schedule_slots
+  attendance_marks
+}
+
+TableGroup exams_module {
+  academic_terms
+  branches
+  exam_entries
+  exam_confirmations
+  user_exam_subscriptions
+}
+
+TableGroup interest_circles {
+  interest_tags
+  user_interest_tags
+  interest_groups
+  group_tags
+  group_join_requests
+  group_memberships
+  discover_profiles
+  discover_swipes
+  discover_matches
+}
+
+TableGroup creators_module {
+  creator_profiles
+  creator_links
+}
+
+TableGroup notifications_module {
+  notifications
+}
