@@ -1,0 +1,11 @@
+﻿{
+  "name": "@campus-companion/web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "React + Tailwind frontend for Campus Companion.",
+  "scripts": {
+    "dev": "echo \"TODO: vite dev / next dev, once the app is scaffolded\"",
+    "build": "echo \"TODO: build command\""
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

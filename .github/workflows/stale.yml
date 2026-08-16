@@ -1,0 +1,29 @@
+﻿name: Mark stale issues and PRs
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-stale: 45
+          days-before-close: 14
+          stale-issue-message: >
+            This issue has been inactive for 45 days and will be closed in
+            14 days if there's no further activity. Comment if it's still
+            relevant.
+          stale-pr-message: >
+            This PR has been inactive for 45 days and will be closed in 14
+            days if there's no further activity.
+          stale-issue-label: "stale"
+          stale-pr-label: "stale"
+          exempt-issue-labels: "pinned,security"
+          exempt-pr-labels: "pinned"

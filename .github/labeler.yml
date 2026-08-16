@@ -1,0 +1,35 @@
+﻿"module: goods-marketplace":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/goods-marketplace/**"
+
+"module: services":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/services/**"
+
+"module: events":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/events/**"
+
+"module: attendance":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/attendance/**"
+
+"module: exams":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/exams/**"
+
+"module: interest-circles":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/interest-circles/**"
+
+"module: creators":
+  - changed-files:
+      - any-glob-to-any-file: "apps/web/src/features/creators/**"
+
+"docs":
+  - changed-files:
+      - any-glob-to-any-file: "docs/**"
+
+"dependencies":
+  - changed-files:
+      - any-glob-to-any-file: "**/package.json"

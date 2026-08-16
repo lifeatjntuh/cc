@@ -1,0 +1,7 @@
+﻿{
+  "name": "@campus-companion/shared",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared types, constants, and schema definitions used by web + functions.",
+  "license": "SEE LICENSE IN LICENSE"
+}

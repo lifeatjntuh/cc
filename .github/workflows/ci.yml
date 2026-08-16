@@ -1,0 +1,31 @@
+﻿name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Lint (placeholder  -  wire up real lint script per workspace)
+        run: echo "TODO: npm run lint --workspaces"
+
+      - name: Build (placeholder  -  wire up real build script per workspace)
+        run: echo "TODO: npm run build --workspaces"

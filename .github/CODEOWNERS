@@ -1,0 +1,10 @@
+﻿# Default owners for everything in the repo, unless a later match takes
+# precedence. Replace with real GitHub usernames/teams once set up.
+
+*                       @OWNER
+
+/apps/web/              @OWNER
+/apps/functions/        @OWNER
+/packages/shared/       @OWNER
+/docs/                  @OWNER
+/.github/               @OWNER

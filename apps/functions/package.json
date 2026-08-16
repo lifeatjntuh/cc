@@ -1,0 +1,11 @@
+﻿{
+  "name": "@campus-companion/functions",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Serverless API layer (Netlify Functions / Cloudflare Workers).",
+  "scripts": {
+    "dev": "echo \"TODO: netlify dev or wrangler dev\"",
+    "build": "echo \"TODO: build command\""
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

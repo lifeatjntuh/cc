@@ -1,0 +1,54 @@
+﻿Campus Companion Source-Available Non-Commercial License (v1.0)
+
+Copyright (c) 2026 Campus Companion contributors. All rights reserved.
+
+NOTE ON TERMINOLOGY: This is a "source-available" license, not an Open
+Source Initiative (OSI) approved open-source license. The OSI definition of
+open source requires that redistribution be permitted; this license does
+not permit redistribution. The source code is public and viewable on
+GitHub, and community contributions are welcome under the terms below, but
+usage rights are intentionally restricted.
+
+1. GRANT OF RIGHTS
+   Subject to the restrictions in Section 2, you are granted a limited,
+   worldwide, royalty-free, non-exclusive, non-transferable license to:
+     a) view, study, and run the source code for personal, educational,
+        or internal non-commercial evaluation purposes; and
+     b) modify the source code locally and submit contributions back to
+        this project's official repository via pull request.
+
+2. RESTRICTIONS
+   You may NOT, without prior written permission from the copyright holders:
+     a) use this software, in whole or in part, for any commercial purpose,
+        including but not limited to selling it, offering it as a paid or
+        ad-supported service, or using it within a commercial product;
+     b) redistribute, publish, sublicense, rehost, or mirror this software
+        or any derivative of it, in source or compiled form, outside of
+        contributing back to the official repository;
+     c) deploy a public or private instance of this software for use by
+        any organization or user base other than the original project's
+        own deployment(s); or
+     d) remove or alter this license notice from any copy of the software.
+
+3. CONTRIBUTIONS
+   By submitting a pull request or other contribution to this repository,
+   you agree that your contribution is licensed to the project under these
+   same terms, and you grant the project maintainers the rights necessary
+   to include, modify, and distribute your contribution as part of the
+   project under this license.
+
+4. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+   CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.
+
+5. TERMINATION
+   This license terminates automatically if you violate any of its terms.
+   Upon termination you must stop all use of the software.
+
+6. CONTACT
+   For commercial licensing, redistribution rights, or any use outside the
+   scope of this license, contact the project maintainers (add contact
+   details in README.md).

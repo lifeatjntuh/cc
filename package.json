@@ -1,0 +1,16 @@
+﻿{
+  "name": "campus-companion",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Student-built, student-owned super app for campus life.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "echo \"TODO: wire up dev script, e.g. npm run dev --workspace=apps/web\"",
+    "build": "echo \"TODO: wire up build across workspaces\"",
+    "lint": "echo \"TODO: wire up lint across workspaces\""
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}
