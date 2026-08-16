@@ -1,9 +1,18 @@
-﻿name: Mark stale issues and PRs
+name: Mark stale issues and PRs
+
+# ------------------------------------------------------------
+# PAUSED — project is not yet ready for CI/CD.
+# To re-enable: restore the commented-out 'on:' block below
+# and remove the workflow_dispatch-only block.
+# ------------------------------------------------------------
+
+# on:
+#   schedule:
+#     - cron: "0 3 * * *"
+#   workflow_dispatch:
 
 on:
-  schedule:
-    - cron: "0 3 * * *"
-  workflow_dispatch:
+  workflow_dispatch: # manual trigger only while paused
 
 jobs:
   stale:

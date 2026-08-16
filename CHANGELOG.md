@@ -5,6 +5,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ---
 
+## [0.3.1] — 2026-08-16
+
+### Changed — GitHub Actions workflows paused
+
+Disabled automatic triggers on all three workflow files while the project is
+in early planning and not ready for CI/CD. Each file now runs on
+`workflow_dispatch` (manual trigger) only. Original triggers are preserved
+as commented-out YAML for easy restoration.
+
+- `.github/workflows/ci.yml` — `push` / `pull_request` triggers commented out
+- `.github/workflows/labeler.yml` — `pull_request_target` trigger commented out
+- `.github/workflows/stale.yml` — daily `schedule` cron commented out
+
+---
+
 ## [0.3.0] — 2026-08-16
 
 ### Added — Product Requirements Document (`docs/PRD.md`)

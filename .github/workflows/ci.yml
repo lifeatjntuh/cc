@@ -1,10 +1,20 @@
-﻿name: CI
+name: CI
+
+# ------------------------------------------------------------
+# PAUSED — project is not yet ready for CI/CD.
+# Automatic triggers (push / pull_request) are disabled.
+# To re-enable: restore the commented-out 'on:' block below
+# and remove the workflow_dispatch-only block.
+# ------------------------------------------------------------
+
+# on:
+#   pull_request:
+#     branches: [main]
+#   push:
+#     branches: [main]
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_dispatch: # manual trigger only while paused
 
 jobs:
   lint-and-build:
